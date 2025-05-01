@@ -57,29 +57,29 @@ Vistaar consists of benchmarks from several public datasets - Kathbath, FLEURS, 
 ### Download Training Datasets and Benchmarks
 |Datasets | Training Datasets | Benchmarks |
 | - | - | - |
-| Kathbath | [link](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/vistaar/kathbath.zip) | [link](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/vistaar_benchmarks/kathbath.zip) |
-| Kathbath Hard | [link](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/vistaar/kathbath_noisy.zip) | [link](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/vistaar_benchmarks/kathbath_noisy.zip) |
-| CommonVoice | [link](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/vistaar/commonvoice.zip) | [link](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/vistaar_benchmarks/commonvoice.zip) |
-| FLEURS | [link](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/vistaar/fleurs.zip) | [link](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/vistaar_benchmarks/fleurs.zip) |
-| IndicTTS | [link](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/vistaar/indictts.zip) | [link](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/vistaar_benchmarks/indictts.zip) |
-| MUCS | [link](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/vistaar/mucs.zip) | [link](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/vistaar_benchmarks/mucs.zip) |
-| gramvaani | [link](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/vistaar/gramvaani.zip) | [link](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/vistaar_benchmarks/gramvaani.zip) |
+| Kathbath | [link](https://indicwhisper.objectstore.e2enetworks.net/vistaar/kathbath.zip) | [link](https://indicwhisper.objectstore.e2enetworks.net/vistaar_benchmarks/kathbath.zip) |
+| Kathbath Hard | [link](https://indicwhisper.objectstore.e2enetworks.net/vistaar/kathbath_noisy.zip) | [link](https://indicwhisper.objectstore.e2enetworks.net/vistaar_benchmarks/kathbath_noisy.zip) |
+| CommonVoice | [link](https://indicwhisper.objectstore.e2enetworks.net/vistaar/commonvoice.zip) | [link](https://indicwhisper.objectstore.e2enetworks.net/vistaar_benchmarks/commonvoice.zip) |
+| FLEURS | [link](https://indicwhisper.objectstore.e2enetworks.net/vistaar/fleurs.zip) | [link](https://indicwhisper.objectstore.e2enetworks.net/vistaar_benchmarks/fleurs.zip) |
+| IndicTTS | [link](https://indicwhisper.objectstore.e2enetworks.net/vistaar/indictts.zip) | [link](https://indicwhisper.objectstore.e2enetworks.net/vistaar_benchmarks/indictts.zip) |
+| MUCS | [link](https://indicwhisper.objectstore.e2enetworks.net/vistaar/mucs.zip) | [link](https://indicwhisper.objectstore.e2enetworks.net/vistaar_benchmarks/mucs.zip) |
+| gramvaani | [link](https://indicwhisper.objectstore.e2enetworks.net/vistaar/gramvaani.zip) | [link](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/vistaar_benchmarks/gramvaani.zip) |
 
 ### Download Models
 |Language |Model Checkpoint |
 | - | - | 
-| Bengali | [hf](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/all_lang_models/bengali_models.zip) |
-| Gujarati | [hf](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/all_lang_models/gujarati_models.zip) |
-| Hindi | [hf](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/all_lang_models/hindi_models.zip) |
-| Kannada | [hf](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/all_lang_models/kannada_models.zip) |
-| Malayalam | [hf](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/all_lang_models/malayalam_models.zip) |
-| Marathi | [hf](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/all_lang_models/marathi_models.zip) |
-| Odia | [hf](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/all_lang_models/odia_models.zip) |
-| Punjabi | [hf](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/all_lang_models/punjabi_models.zip) |
-| Sanskrit | [hf](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/all_lang_models/sanskrit_models.zip) |
-| Tamil | [hf](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/all_lang_models/tamil_models.zip) |
-| Telugu | [hf](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/all_lang_models/telugu_models.zip) |
-| Urdu | [hf](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/all_lang_models/urdu_models.zip) |
+| Bengali | [hf](https://indicwhisper.objectstore.e2enetworks.net/bengali_models.zip) |
+| Gujarati | [hf](https://indicwhisper.objectstore.e2enetworks.net/gujarati_models.zip) |
+| Hindi | [hf](https://indicwhisper.objectstore.e2enetworks.net/hindi_models.zip) |
+| Kannada | [hf](https://indicwhisper.objectstore.e2enetworks.net/kannada_models.zip) |
+| Malayalam | [hf](https://indicwhisper.objectstore.e2enetworks.net/malayalam_models.zip) |
+| Marathi | [hf](https://indicwhisper.objectstore.e2enetworks.net/marathi_models.zip) |
+| Odia | [hf](https://indicwhisper.objectstore.e2enetworks.net/odia_models.zip) |
+| Punjabi | [hf](https://indicwhisper.objectstore.e2enetworks.net/punjabi_models.zip) |
+| Sanskrit | [hf](https://indicwhisper.objectstore.e2enetworks.net/sanskrit_models.zip) |
+| Tamil | [hf](https://indicwhisper.objectstore.e2enetworks.net/tamil_models.zip) |
+| Telugu | [hf](https://indicwhisper.objectstore.e2enetworks.net/telugu_models.zip) |
+| Urdu | [hf](https://indicwhisper.objectstore.e2enetworks.net/urdu_models.zip) |
 
 ## Tutorials
 ### Setting up your environment
