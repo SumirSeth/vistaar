@@ -63,7 +63,7 @@ Vistaar consists of benchmarks from several public datasets - Kathbath, FLEURS, 
 | FLEURS | [link](https://indicwhisper.objectstore.e2enetworks.net/vistaar/fleurs.zip) | [link](https://indicwhisper.objectstore.e2enetworks.net/vistaar_benchmarks/fleurs.zip) |
 | IndicTTS | [link](https://indicwhisper.objectstore.e2enetworks.net/vistaar/indictts.zip) | [link](https://indicwhisper.objectstore.e2enetworks.net/vistaar_benchmarks/indictts.zip) |
 | MUCS | [link](https://indicwhisper.objectstore.e2enetworks.net/vistaar/mucs.zip) | [link](https://indicwhisper.objectstore.e2enetworks.net/vistaar_benchmarks/mucs.zip) |
-| gramvaani | [link](https://indicwhisper.objectstore.e2enetworks.net/vistaar/gramvaani.zip) | [link](https://objectstore.e2enetworks.net/indic-asr-public/indicwhisper/vistaar_benchmarks/gramvaani.zip) |
+| gramvaani | [link](https://indicwhisper.objectstore.e2enetworks.net/vistaar/gramvaani.zip) | [link]((https://indicwhisper.objectstore.e2enetworks.net/vistaar_benchmarks)/gramvaani.zip) |
 
 ### Download Models
 |Language |Model Checkpoint |
