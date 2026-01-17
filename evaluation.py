@@ -1,5 +1,5 @@
 import argparse
-from transformers import pipeline
+import requests
 from datasets import load_dataset, Audio
 import evaluate
 from joblib import Parallel, delayed
@@ -18,19 +18,6 @@ import re
 import time
 import torch
 
-from transformers import (
-    AutoConfig,
-    AutoFeatureExtractor,
-    AutoModelForSpeechSeq2Seq,
-    AutoProcessor,
-    AutoTokenizer,
-    HfArgumentParser,
-    Seq2SeqTrainer,
-    Seq2SeqTrainingArguments,
-    TrainerCallback,
-    set_seed,
-)
-
 lang_to_code = {
     'hindi': 'hi',
     'sanskrit': 'sa',
@@ -44,6 +31,22 @@ lang_to_code = {
     'odia': 'or',
     'punjabi': 'pa',
     'urdu': 'ur',
+}
+
+# Mapping from 2-letter language codes to ISO 639-3 format with script (for API)
+lang_code_to_api = {
+    'hi': 'hin_Deva',
+    'sa': 'san_Deva',
+    'bn': 'ben_Beng',
+    'ta': 'tam_Taml',
+    'te': 'tel_Telu',
+    'gu': 'guj_Gujr',
+    'kn': 'kan_Knda',
+    'ml': 'mal_Mlym',
+    'mr': 'mar_Deva',
+    'or': 'ory_Orya',
+    'pa': 'pan_Guru',
+    'ur': 'urd_Arab',
 }
 
 def normalize_sentence(sentence, lang_code):
@@ -74,16 +77,63 @@ class eval_dataset(Dataset):
         self.audios.append(aud)
         self.sents.append(sent)
 
-def get_data(split):
+def get_data(split, manifest_dir):
     js_data = json.loads(split)
     aud = {}
-    aud['path'] = js_data['audio_filepath'].replace('/nlsasfs/home/ai4bharat/ai4bharat-pr/speechteam/asr_datasets', '/workspace/ai4bharat-pr/speechteam/ai4bp_upload/vistaar')
-    y, sr = sf.read(aud['path'])
+    # Resolve audio path relative to manifest directory
+    audio_path = js_data['audio_filepath']
+    if not os.path.isabs(audio_path):
+        audio_path = os.path.join(manifest_dir, audio_path)
+    
+    y, sr = sf.read(audio_path)
+    aud['path'] = audio_path
     aud['duration'] = js_data['duration']
     aud['array'] = y
     aud['sampling_rate'] = sr
     
     return (aud, js_data['text'])
+
+def call_api(audio_path, api_url="http://localhost:6769/v1/audio/transcriptions", model="omniASR_LLM_Unlimited_7B_v2", language=None):
+    """
+    Call the external transcription API with an audio file.
+    
+    Args:
+        audio_path: Path to the audio file
+        api_url: API endpoint URL
+        model: Model name to use
+        language: ISO 639-3 language code with script (e.g., 'hin_Deva')
+    
+    Returns:
+        Transcription text from the API
+    """
+    try:
+        with open(audio_path, 'rb') as f:
+            files = {'file': f}
+            data = {
+                'model': model,
+                'response_format': 'verbose_json'
+            }
+            if language:
+                data['language'] = language
+            
+            response = requests.post(api_url, files=files, data=data, timeout=120)
+        
+        if response.status_code == 200:
+            result = response.json()
+            # Extract text from verbose_json response
+            if 'text' in result:
+                return result['text']
+            elif 'result' in result:
+                return result['result']
+            else:
+                return str(result)  # Fallback to string representation
+        else:
+            print(f"API Error: Status {response.status_code} for {audio_path}")
+            print(f"Response: {response.text}")
+            return ""
+    except Exception as e:
+        print(f"Error calling API for {audio_path}: {str(e)}")
+        return ""
     
 
 def main(args):
@@ -94,30 +144,19 @@ def main(args):
         if splits[-1] == '':
             splits = splits[:-1]
     
-    da = Parallel(n_jobs=128)(delayed(get_data)(split) for split in tqdm(splits))
+    # Get the benchmarks root directory
+    # The manifest is at: /home/vistaar/benchmarks/kathbath/hindi/manifest.json
+    # We need to go up 2 directories to get: /home/vistaar/benchmarks/
+    manifest_path = os.path.abspath(args.manifest_path)
+    manifest_dir = os.path.dirname(manifest_path)  # /home/vistaar/benchmarks/kathbath/hindi
+    benchmark_root = os.path.dirname(os.path.dirname(manifest_dir))  # /home/vistaar/benchmarks
+    
+    da = Parallel(n_jobs=128)(delayed(get_data)(split, benchmark_root) for split in tqdm(splits))
     
     dataset = eval_dataset()
     for d in da:
         dataset.fill_data(d[0], d[1])
- 
-    whisper_asr = pipeline(
-        "automatic-speech-recognition", model=args.model_path, device=args.device,
-    )
     
-    # Special case to handle odia since odia is not supported by whisper model
-    if args.lang_code == 'or':
-        whisper_asr.model.config.forced_decoder_ids = (
-            whisper_asr.tokenizer.get_decoder_prompt_ids(
-                language=None, task="transcribe"
-            )
-        )
-    else:
-        whisper_asr.model.config.forced_decoder_ids = (
-            whisper_asr.tokenizer.get_decoder_prompt_ids(
-                language=args.lang_code, task="transcribe"
-            )
-        )
-
     hypothesis = []
     ground_truth = []
     
@@ -129,10 +168,19 @@ def main(args):
     
     st = time.time()
     
-    for out in tqdm(whisper_asr(dataset, batch_size=args.batch_size), total=len(dataset)):
+    # Call API for each sample in the dataset
+    for i in tqdm(range(len(dataset)), total=len(dataset)):
+        sample = dataset[i]
+        audio_path = sample['path']
+        ref = sample['reference']
         
-        hyp = out['text']
-        ref = out['reference'][0]
+        # Get the API language code (ISO 639-3 format with script)
+        api_lang_code = lang_code_to_api.get(args.lang_code[:2], None)
+        
+        # Call the external API with language parameter
+        hyp = call_api(audio_path, api_url=args.api_url, model=args.model_path, language=api_lang_code)
+        
+        # Text post-processing
         hyp = hyp.translate(str.maketrans('', '', string.punctuation+"।۔'-॥"))
         ref = ref.translate(str.maketrans('', '', string.punctuation+"।۔'-॥"))
         if args.lang_code[:2] != 'ur':
@@ -146,10 +194,10 @@ def main(args):
         hypothesis.append(hyp)
         ground_truth.append(ref)
         res = {
-            "audio_filepath":out['path'][0],
-            "duration":out['duration'][0],
-            "text":ref,
-            "pred_text":hyp
+            "audio_filepath": audio_path,
+            "duration": sample['duration'],
+            "text": ref,
+            "pred_text": hyp
         }
         with open(dir_path + '/' + 'predictions/' + out_name, 'a') as f:
             json.dump(res, f)
@@ -182,7 +230,13 @@ if __name__ == "__main__":
         "--model_path",
         type=str,
         required=True,
-        help="path to model",
+        help="model name to use with the API (e.g., omniASR_LLM_Unlimited_7B_v2)",
+    )
+    parser.add_argument(
+        "--api_url",
+        type=str,
+        default="http://localhost:6769/v1/audio/transcriptions",
+        help="API endpoint URL for transcription",
     )
     parser.add_argument(
         "--manifest_path",
@@ -200,13 +254,13 @@ if __name__ == "__main__":
         "--device",
         type=int,
         default=-1,
-        help="The device to run the pipeline on. -1 for CPU (default), 0 for the first GPU and so on.",
+        help="The device to run the pipeline on. -1 for CPU (default), 0 for the first GPU and so on. (deprecated)",
     )
     parser.add_argument(
         "--batch_size",
         type=int,
         default=32,
-        help="Number of samples for each batch.",
+        help="Number of samples for each batch. (deprecated)",
     )
     parser.add_argument(
         "--language",
