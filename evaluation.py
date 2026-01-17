@@ -1,5 +1,6 @@
 import argparse
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datasets import load_dataset, Audio
 import evaluate
 from joblib import Parallel, delayed
@@ -70,8 +71,7 @@ class eval_dataset(Dataset):
         return len(self.audios)
 
     def __getitem__(self, i):
-        return {"raw": self.audios[i]['array'], "sampling_rate":self.audios[i]['sampling_rate'], "reference":self.sents[i], 
-                "path": self.audios[i]['path'], "duration": self.audios[i]['duration']}
+        return {"reference": self.sents[i], "path": self.audios[i]['path'], "duration": self.audios[i]['duration']}
     
     def fill_data(self, aud, sent):
         self.audios.append(aud)
@@ -84,28 +84,34 @@ def get_data(split, manifest_dir):
     audio_path = js_data['audio_filepath']
     if not os.path.isabs(audio_path):
         audio_path = os.path.join(manifest_dir, audio_path)
-    
-    y, sr = sf.read(audio_path)
     aud['path'] = audio_path
     aud['duration'] = js_data['duration']
-    aud['array'] = y
-    aud['sampling_rate'] = sr
     
     return (aud, js_data['text'])
 
-def call_api(audio_path, api_url="http://localhost:6769/v1/audio/transcriptions", model="omniASR_LLM_Unlimited_7B_v2", language=None):
+def call_api(audio_path, api_url="http://localhost:6769/v1/audio/transcriptions", model="omniASR_LLM_Unlimited_7B_v2", language=None, endpoint_index=None):
     """
     Call the external transcription API with an audio file.
     
     Args:
         audio_path: Path to the audio file
-        api_url: API endpoint URL
+        api_url: API endpoint URL (base URL if endpoint_index specified)
         model: Model name to use
         language: ISO 639-3 language code with script (e.g., 'hin_Deva')
+        endpoint_index: 0 or 1 to use alternate endpoints (6769/6770)
     
     Returns:
         Transcription text from the API
     """
+    # Select endpoint based on index
+    if endpoint_index is not None:
+        if endpoint_index % 2 == 0:
+            actual_url = "http://localhost:6769/v1/audio/transcriptions"
+        else:
+            actual_url = "http://localhost:6770/v1/audio/transcriptions"
+    else:
+        actual_url = api_url
+    
     try:
         with open(audio_path, 'rb') as f:
             files = {'file': f}
@@ -116,7 +122,7 @@ def call_api(audio_path, api_url="http://localhost:6769/v1/audio/transcriptions"
             if language:
                 data['language'] = language
             
-            response = requests.post(api_url, files=files, data=data, timeout=120)
+            response = requests.post(actual_url, files=files, data=data, timeout=120)
         
         if response.status_code == 200:
             result = response.json()
@@ -134,7 +140,69 @@ def call_api(audio_path, api_url="http://localhost:6769/v1/audio/transcriptions"
     except Exception as e:
         print(f"Error calling API for {audio_path}: {str(e)}")
         return ""
+
+def load_existing_predictions(predictions_path):
+    """
+    Load existing predictions file (JSON lines) and return:
+    - processed_paths: set of audio filepaths already processed
+    - hypothesis: list of existing hypothesis texts
+    - ground_truth: list of existing reference texts
+    """
+    processed_paths = set()
+    hypothesis = []
+    ground_truth = []
+
+    if not os.path.exists(predictions_path):
+        return processed_paths, hypothesis, ground_truth
+
+    with open(predictions_path, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+                audio_path = item.get("audio_filepath")
+                pred_text = item.get("pred_text", "")
+                ref_text = item.get("text", "")
+                if audio_path:
+                    processed_paths.add(audio_path)
+                hypothesis.append(pred_text)
+                ground_truth.append(ref_text)
+            except json.JSONDecodeError:
+                continue
+
+    return processed_paths, hypothesis, ground_truth
     
+
+def process_sample(sample, args, api_lang_code, sample_index=None):
+    audio_path = sample['path']
+    ref = sample['reference']
+
+    # Determine endpoint_index if dual endpoints enabled
+    endpoint_index = sample_index if (args.dual_endpoints and sample_index is not None) else None
+    hyp = call_api(audio_path, api_url=args.api_url, model=args.model_path, language=api_lang_code, endpoint_index=endpoint_index)
+
+    # Text post-processing
+    hyp = hyp.translate(str.maketrans('', '', string.punctuation+"।।'-॥"))
+    ref = ref.translate(str.maketrans('', '', string.punctuation+"।।'-॥"))
+    if args.lang_code[:2] != 'ur':
+        hyp = normalize_sentence(hyp, args.lang_code[:2])
+        ref = normalize_sentence(ref, args.lang_code[:2])
+    hyp = re.sub(' +', ' ', hyp)
+    ref = re.sub(' +', ' ', ref)
+
+    if ref == '':
+        ref = '<empty>'
+
+    res = {
+        "audio_filepath": audio_path,
+        "duration": sample['duration'],
+        "text": ref,
+        "pred_text": hyp
+    }
+
+    return hyp, ref, res
 
 def main(args):
     
@@ -151,57 +219,81 @@ def main(args):
     manifest_dir = os.path.dirname(manifest_path)  # /home/vistaar/benchmarks/kathbath/hindi
     benchmark_root = os.path.dirname(os.path.dirname(manifest_dir))  # /home/vistaar/benchmarks
     
-    da = Parallel(n_jobs=128)(delayed(get_data)(split, benchmark_root) for split in tqdm(splits))
+    da = Parallel(n_jobs=min(32, os.cpu_count() or 32))(delayed(get_data)(split, benchmark_root) for split in tqdm(splits))
     
     dataset = eval_dataset()
     for d in da:
         dataset.fill_data(d[0], d[1])
     
-    hypothesis = []
-    ground_truth = []
-    
+    # Prepare resumable predictions file
     os.makedirs(dir_path + '/' + 'predictions', exist_ok=True)
-    
+
     out_name = args.model_path.rsplit('/',1)[-1] + '_' + args.manifest_name + '_' + 'predictions.json'
+    predictions_path = dir_path + '/' + 'predictions/' + out_name
+
+    # Load existing predictions if present (resume capability)
+    processed_paths, hypothesis, ground_truth = load_existing_predictions(predictions_path)
     
-    open(dir_path + '/' + 'predictions/' + out_name, 'w').close()
+    # Ensure file exists for appending
+    if not os.path.exists(predictions_path):
+        open(predictions_path, 'w').close()
     
     st = time.time()
     
-    # Call API for each sample in the dataset
-    for i in tqdm(range(len(dataset)), total=len(dataset)):
+    # Prepare pending samples
+    pending_samples = []
+    for i in range(len(dataset)):
         sample = dataset[i]
-        audio_path = sample['path']
-        ref = sample['reference']
+        if sample['path'] in processed_paths:
+            continue
+        pending_samples.append(sample)
+
+    api_lang_code = lang_code_to_api.get(args.lang_code[:2], None)
+
+    if args.dual_endpoints:
+        # Split samples into two groups for dual endpoints
+        even_samples = [(idx, sample) for idx, sample in enumerate(pending_samples) if idx % 2 == 0]
+        odd_samples = [(idx, sample) for idx, sample in enumerate(pending_samples) if idx % 2 == 1]
         
-        # Get the API language code (ISO 639-3 format with script)
-        api_lang_code = lang_code_to_api.get(args.lang_code[:2], None)
+        def process_batch(samples_with_idx):
+            """Process a batch of samples sequentially"""
+            results = []
+            for idx, sample in samples_with_idx:
+                hyp, ref, res = process_sample(sample, args, api_lang_code, idx)
+                results.append((hyp, ref, res))
+            return results
         
-        # Call the external API with language parameter
-        hyp = call_api(audio_path, api_url=args.api_url, model=args.model_path, language=api_lang_code)
-        
-        # Text post-processing
-        hyp = hyp.translate(str.maketrans('', '', string.punctuation+"।۔'-॥"))
-        ref = ref.translate(str.maketrans('', '', string.punctuation+"।۔'-॥"))
-        if args.lang_code[:2] != 'ur':
-            hyp = normalize_sentence(hyp, args.lang_code[:2])
-            ref = normalize_sentence(ref, args.lang_code[:2])
-        hyp = re.sub(' +', ' ', hyp)
-        ref = re.sub(' +', ' ', ref)
-        
-        if ref == '':
-            ref = '<empty>'
-        hypothesis.append(hyp)
-        ground_truth.append(ref)
-        res = {
-            "audio_filepath": audio_path,
-            "duration": sample['duration'],
-            "text": ref,
-            "pred_text": hyp
-        }
-        with open(dir_path + '/' + 'predictions/' + out_name, 'a') as f:
-            json.dump(res, f)
-            f.write('\n')
+        # Process both batches in parallel (one per endpoint)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_even = executor.submit(process_batch, even_samples)
+            future_odd = executor.submit(process_batch, odd_samples)
+            
+            # Collect results from both endpoints
+            all_results = []
+            for future in tqdm(as_completed([future_even, future_odd]), total=2, desc="Endpoints"):
+                batch_results = future.result()
+                all_results.extend(batch_results)
+            
+            # Write all results and build hypothesis/ground_truth
+            for hyp, ref, res in all_results:
+                hypothesis.append(hyp)
+                ground_truth.append(ref)
+                with open(predictions_path, 'a') as f:
+                    json.dump(res, f)
+                    f.write('\n')
+    else:
+        # Original single-endpoint logic
+        with ThreadPoolExecutor(max_workers=args.num_workers) as executor:
+            futures = {executor.submit(process_sample, sample, args, api_lang_code, idx): (sample, idx)
+                       for idx, sample in enumerate(pending_samples)}
+            
+            for future in tqdm(as_completed(futures), total=len(futures)):
+                hyp, ref, res = future.result()
+                hypothesis.append(hyp)
+                ground_truth.append(ref)
+                with open(predictions_path, 'a') as f:
+                    json.dump(res, f)
+                    f.write('\n')
     
     et = time.time()
      
@@ -211,9 +303,8 @@ def main(args):
     data['language'] = args.lang_code
     data['cer'] = jiwer.cer(ground_truth, hypothesis)
     data['time'] = (et-st)/60
-    data['batch_size'] = args.batch_size
-    measures = jiwer.compute_measures(ground_truth, hypothesis)
-    data['wer'] = measures['wer']
+    data['num_workers'] = args.num_workers
+    data['wer'] = jiwer.wer(ground_truth, hypothesis)
 
     print(data)
     
@@ -251,23 +342,23 @@ if __name__ == "__main__":
         help="manifest name",
     )
     parser.add_argument(
-        "--device",
-        type=int,
-        default=-1,
-        help="The device to run the pipeline on. -1 for CPU (default), 0 for the first GPU and so on. (deprecated)",
-    )
-    parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=32,
-        help="Number of samples for each batch. (deprecated)",
-    )
-    parser.add_argument(
         "--language",
         type=str,
         required=True,
         help="current language",
     )
+    parser.add_argument(
+        "--num_workers",
+        type=int,
+        default=2,
+        help="Number of parallel API workers (default: 2)",
+    )
+    parser.add_argument(
+        "--dual_endpoints",
+        action="store_true",
+        help="Split load 50-50 between localhost:6769 and localhost:6770",
+    )
+    
     args = parser.parse_args()
     
     if len(args.language) == 2:
