@@ -89,7 +89,7 @@ def get_data(split, manifest_dir):
     
     return (aud, js_data['text'])
 
-def call_api(audio_path, api_url="http://localhost:6769/v1/audio/transcriptions", model="omniASR_LLM_Unlimited_7B_v2", language=None, endpoint_index=None):
+def call_api(audio_path, api_url="http://localhost:6769/v1/audio/transcriptions", model="omniASR_LLM_Unlimited_7B_v2", language=None, endpoint_index=None, num_endpoints=1):
     """
     Call the external transcription API with an audio file.
     
@@ -98,17 +98,16 @@ def call_api(audio_path, api_url="http://localhost:6769/v1/audio/transcriptions"
         api_url: API endpoint URL (base URL if endpoint_index specified)
         model: Model name to use
         language: ISO 639-3 language code with script (e.g., 'hin_Deva')
-        endpoint_index: 0 or 1 to use alternate endpoints (6769/6770)
+        endpoint_index: Sample index for distributing across endpoints
+        num_endpoints: Number of endpoints to distribute across (starting from port 6769)
     
     Returns:
         Transcription text from the API
     """
     # Select endpoint based on index
-    if endpoint_index is not None:
-        if endpoint_index % 2 == 0:
-            actual_url = "http://localhost:6769/v1/audio/transcriptions"
-        else:
-            actual_url = "http://localhost:6770/v1/audio/transcriptions"
+    if endpoint_index is not None and num_endpoints > 1:
+        port = 6769 + (endpoint_index % num_endpoints)
+        actual_url = f"http://localhost:{port}/v1/audio/transcriptions"
     else:
         actual_url = api_url
     
@@ -179,9 +178,9 @@ def process_sample(sample, args, api_lang_code, sample_index=None):
     audio_path = sample['path']
     ref = sample['reference']
 
-    # Determine endpoint_index if dual endpoints enabled
-    endpoint_index = sample_index if (args.dual_endpoints and sample_index is not None) else None
-    hyp = call_api(audio_path, api_url=args.api_url, model=args.model_path, language=api_lang_code, endpoint_index=endpoint_index)
+    # Determine endpoint_index if multiple endpoints enabled
+    endpoint_index = sample_index if (args.num_endpoints > 1 and sample_index is not None) else None
+    hyp = call_api(audio_path, api_url=args.api_url, model=args.model_path, language=api_lang_code, endpoint_index=endpoint_index, num_endpoints=args.num_endpoints)
 
     # Text post-processing
     hyp = hyp.translate(str.maketrans('', '', string.punctuation+"।।'-॥"))
@@ -250,10 +249,12 @@ def main(args):
 
     api_lang_code = lang_code_to_api.get(args.lang_code[:2], None)
 
-    if args.dual_endpoints:
-        # Split samples into two groups for dual endpoints
-        even_samples = [(idx, sample) for idx, sample in enumerate(pending_samples) if idx % 2 == 0]
-        odd_samples = [(idx, sample) for idx, sample in enumerate(pending_samples) if idx % 2 == 1]
+    if args.num_endpoints > 1:
+        # Split samples into N groups for parallel endpoint processing
+        grouped_samples = [[] for _ in range(args.num_endpoints)]
+        for idx, sample in enumerate(pending_samples):
+            group_idx = idx % args.num_endpoints
+            grouped_samples[group_idx].append((idx, sample))
         
         def process_batch(samples_with_idx):
             """Process a batch of samples sequentially"""
@@ -263,14 +264,13 @@ def main(args):
                 results.append((hyp, ref, res))
             return results
         
-        # Process both batches in parallel (one per endpoint)
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            future_even = executor.submit(process_batch, even_samples)
-            future_odd = executor.submit(process_batch, odd_samples)
+        # Process all batches in parallel (one per endpoint)
+        with ThreadPoolExecutor(max_workers=args.num_endpoints) as executor:
+            futures = [executor.submit(process_batch, group) for group in grouped_samples]
             
-            # Collect results from both endpoints
+            # Collect results from all endpoints
             all_results = []
-            for future in tqdm(as_completed([future_even, future_odd]), total=2, desc="Endpoints"):
+            for future in tqdm(as_completed(futures), total=args.num_endpoints, desc="Endpoints"):
                 batch_results = future.result()
                 all_results.extend(batch_results)
             
@@ -282,7 +282,7 @@ def main(args):
                     json.dump(res, f)
                     f.write('\n')
     else:
-        # Original single-endpoint logic
+        # Single-endpoint logic with num_workers threads
         with ThreadPoolExecutor(max_workers=args.num_workers) as executor:
             futures = {executor.submit(process_sample, sample, args, api_lang_code, idx): (sample, idx)
                        for idx, sample in enumerate(pending_samples)}
@@ -351,12 +351,13 @@ if __name__ == "__main__":
         "--num_workers",
         type=int,
         default=2,
-        help="Number of parallel API workers (default: 2)",
+        help="Number of parallel API workers when using single endpoint (default: 2)",
     )
     parser.add_argument(
-        "--dual_endpoints",
-        action="store_true",
-        help="Split load 50-50 between localhost:6769 and localhost:6770",
+        "--num_endpoints",
+        type=int,
+        default=8,
+        help="Number of parallel endpoints to distribute load across, starting from port 6769 (default: 8). Set to 1 for single endpoint.",
     )
     
     args = parser.parse_args()

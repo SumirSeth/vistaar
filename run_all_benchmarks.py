@@ -34,7 +34,7 @@ def discover_benchmarks(benchmarks_root="/home/vistaar/benchmarks"):
     
     return dict(sorted(benchmarks.items()))
 
-def run_evaluation(model_path, manifest_path, dataset_name, language, api_url="http://localhost:6769/v1/audio/transcriptions", num_workers=1, dual_endpoints=False):
+def run_evaluation(model_path, manifest_path, dataset_name, language, api_url="http://localhost:6769/v1/audio/transcriptions", num_workers=1, num_endpoints=8):
     """
     Run evaluation.py for a single dataset/language combination.
     """
@@ -48,10 +48,8 @@ def run_evaluation(model_path, manifest_path, dataset_name, language, api_url="h
         "--language", language,
         "--api_url", api_url,
         "--num_workers", str(num_workers),
+        "--num_endpoints", str(num_endpoints),
     ]
-    
-    if dual_endpoints:
-        cmd.append("--dual_endpoints")
     
     print(f"\n{'='*60}")
     print(f"Running: {dataset_name} / {language}")
@@ -84,8 +82,8 @@ def main():
     parser.add_argument(
         "--num_workers",
         type=int,
-        default=2,
-        help="Number of parallel API workers (default: 2)",
+        default=8,
+        help="Number of parallel API workers (default: 8)",
     )
     parser.add_argument(
         "--dataset",
@@ -105,9 +103,10 @@ def main():
         help="Show what will be processed without actually running evaluations",
     )
     parser.add_argument(
-        "--dual_endpoints",
-        action="store_true",
-        help="Split load 50-50 between localhost:6769 and localhost:6770",
+        "--num_endpoints",
+        type=int,
+        default=8,
+        help="Number of parallel endpoints to distribute load across, starting from port 6769 (default: 8)",
     )
     
     args = parser.parse_args()
@@ -163,7 +162,7 @@ def main():
             language=language,
             api_url=args.api_url,
             num_workers=args.num_workers,
-            dual_endpoints=args.dual_endpoints,
+            num_endpoints=args.num_endpoints,
         ):
             passed += 1
         else:
