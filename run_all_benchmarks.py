@@ -34,7 +34,7 @@ def discover_benchmarks(benchmarks_root="/home/vistaar/benchmarks"):
     
     return dict(sorted(benchmarks.items()))
 
-def run_evaluation(model_path, manifest_path, dataset_name, language, api_url="http://localhost:6769/v1/audio/transcriptions", num_workers=1, num_endpoints=8):
+def run_evaluation(model_path, manifest_path, dataset_name, language, api_url="http://localhost:6769/v1/audio/transcriptions", num_workers=1, num_endpoints=8, guess=False):
     """
     Run evaluation.py for a single dataset/language combination.
     """
@@ -50,6 +50,9 @@ def run_evaluation(model_path, manifest_path, dataset_name, language, api_url="h
         "--num_workers", str(num_workers),
         "--num_endpoints", str(num_endpoints),
     ]
+    
+    if guess:
+        cmd.append("--guess")
     
     print(f"\n{'='*60}")
     print(f"Running: {dataset_name} / {language}")
@@ -96,6 +99,11 @@ def main():
         type=str,
         default=None,
         help="Run only a specific language (optional)",
+    )
+    parser.add_argument(
+        "--guess",
+        action="store_true",
+        help="Let the model auto-detect language (do not provide language parameter to API)",
     )
     parser.add_argument(
         "--dry_run",
@@ -163,6 +171,7 @@ def main():
             api_url=args.api_url,
             num_workers=args.num_workers,
             num_endpoints=args.num_endpoints,
+            guess=args.guess,
         ):
             passed += 1
         else:

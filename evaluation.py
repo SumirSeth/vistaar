@@ -180,7 +180,9 @@ def process_sample(sample, args, api_lang_code, sample_index=None):
 
     # Determine endpoint_index if multiple endpoints enabled
     endpoint_index = sample_index if (args.num_endpoints > 1 and sample_index is not None) else None
-    hyp = call_api(audio_path, api_url=args.api_url, model=args.model_path, language=api_lang_code, endpoint_index=endpoint_index, num_endpoints=args.num_endpoints)
+    # Don't pass language if --guess flag is set (let model auto-detect)
+    lang_param = None if args.guess else api_lang_code
+    hyp = call_api(audio_path, api_url=args.api_url, model=args.model_path, language=lang_param, endpoint_index=endpoint_index, num_endpoints=args.num_endpoints)
 
     # Text post-processing
     hyp = hyp.translate(str.maketrans('', '', string.punctuation+"।।'-॥"))
@@ -358,6 +360,11 @@ if __name__ == "__main__":
         type=int,
         default=8,
         help="Number of parallel endpoints to distribute load across, starting from port 6769 (default: 8). Set to 1 for single endpoint.",
+    )
+    parser.add_argument(
+        "--guess",
+        action="store_true",
+        help="Let the model auto-detect language (do not provide language parameter to API)",
     )
     
     args = parser.parse_args()
